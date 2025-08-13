@@ -1,4 +1,4 @@
-Two different zip files for Mac users and Windows users. Please download accordingly.
+Two different zip files for Mac users and Windows users. Please download accordingly to your operating system.
 
 **INSTALLATION**
 
