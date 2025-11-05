@@ -14,3 +14,7 @@ Also, you can use the application with the name "SingleBeatAnalysisApp" wihtin t
 **FOR USER INSTRUCTION**
 
 https://docs.google.com/document/d/1isvKoO08ydkY4EH-i-tQ1UhiNGSV4qrxaRYli01PF3E/edit?usp=sharing
+
+**FOR INQUIRIES**
+
+Reach out to Sun Moon: gmoon3@jh.edu
