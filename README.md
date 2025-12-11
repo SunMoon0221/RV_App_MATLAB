@@ -15,6 +15,10 @@ Also, you can use the application with the name "SingleBeatAnalysisApp" wihtin t
 
 https://docs.google.com/document/d/1isvKoO08ydkY4EH-i-tQ1UhiNGSV4qrxaRYli01PF3E/edit?usp=sharing
 
+**VIDEO INSTRUCTION**
+
+https://drive.google.com/file/d/1pZz8llqBqVUCR1J_cKEH2t0raKyOnoti/view?usp=sharing
+
 **FOR INQUIRIES**
 
 Reach out to Sun Moon: gmoon3@jh.edu
