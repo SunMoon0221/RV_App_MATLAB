@@ -50,6 +50,12 @@ from app.services.image_processing import (
 
 app = FastAPI(title="RV Single-Beat Analysis API", version="1.0.0")
 
+
+@app.get("/api/health")
+def health() -> dict:
+    """Liveness check for dev scripts and frontend proxy."""
+    return {"status": "ok", "service": "rv-single-beat-analysis"}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -335,6 +341,11 @@ def calibrate_session(session_id: str, body: CalibrationRequest) -> CalibrationR
     state.calibration = params
     t, p = apply_calibration(x_px, y_px, params)
     valid = np.isfinite(t) & np.isfinite(p)
+    if not np.any(valid):
+        raise HTTPException(
+            400,
+            "Calibration produced no valid trace points. Check origin, guide lines, and mask.",
+        )
     store.save_array(session_id, "calibrated_trace", np.column_stack([t[valid], p[valid]]))
     exports.save_calibrated_trace_csv(
         store.export_path(session_id, "calibrated_trace.csv"), t[valid], p[valid]
@@ -411,10 +422,8 @@ def average_beats_endpoint(session_id: str, body: AverageBeatsRequest) -> Averag
         t_avg, p_avg, mean_corr = average_beats(cal[:, 0], cal[:, 1], beats)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    # Scale normalized time to physiological duration (mean beat length)
-    durations = [b.end_time - b.start_time for b in beats if b.keep]
-    dur = float(np.mean(durations)) if durations else 1.0
-    t_phys = t_avg * dur
+    # avg_time is already in seconds on the 500 Hz alignment grid (MATLAB alignAndNormalizeBeatsForAverage)
+    t_phys = t_avg
     store.save_array(session_id, "averaged_waveform", np.column_stack([t_phys, p_avg]))
 
     state = store.get(session_id)
@@ -455,6 +464,7 @@ def single_beat_analysis(session_id: str, body: SingleBeatAnalysisRequest) -> Si
     get_session_or_404(session_id)
     esp_idx = edp_idx = None
     sigma_ms = body.gaussian_sigma_ms
+    marker_sigma_ms = 400.0
     event_peaks: list[int] | None = None
     if body.peak_selection:
         peaks = body.peak_selection.event_marker_peak_indices
@@ -464,20 +474,24 @@ def single_beat_analysis(session_id: str, body: SingleBeatAnalysisRequest) -> Si
         n = len(avg)
         esp_idx = clamp_index(body.peak_selection.esp_peak_indices[0], n, "esp_idx")
         edp_idx = clamp_index(body.peak_selection.edp_peak_indices[0], n, "edp_idx")
-        sigma_ms = body.peak_selection.smoothing_sigma_ms
+        marker_sigma_ms = body.peak_selection.smoothing_sigma_ms
 
-    hemo, methods = hemodynamics.compute_hemodynamics(
-        avg[:, 0],
-        avg[:, 1],
-        body.stroke_volume_ml,
-        body.pmax_scale_factor,
-        body.selected_pmax_method,
-        event_peaks,
-        esp_idx,
-        edp_idx,
-        cutoff_hz=body.filter_cutoff_hz,
-        sigma_ms=sigma_ms,
-    )
+    try:
+        hemo, methods = hemodynamics.compute_hemodynamics(
+            avg[:, 0],
+            avg[:, 1],
+            body.stroke_volume_ml,
+            body.pmax_scale_factor,
+            body.selected_pmax_method,
+            event_peaks,
+            esp_idx,
+            edp_idx,
+            cutoff_hz=body.filter_cutoff_hz,
+            sigma_ms=sigma_ms,
+            marker_sigma_ms=marker_sigma_ms,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
     state = store.get(session_id)
     state.hemodynamic_results = hemo

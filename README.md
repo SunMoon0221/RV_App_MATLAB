@@ -51,10 +51,27 @@ Open http://localhost:3000 — API requests proxy to port 8000 via `next.config.
 
 ```bash
 cd backend
-source .venv/bin/activate
-pip install -r requirements.txt
-PYTHONPATH=. pytest tests/ -v
+chmod +x scripts/setup_venv.sh scripts/run_tests.sh scripts/run_dev.sh
+./scripts/setup_venv.sh    # creates .venv, installs deps, runs tests
+./scripts/run_tests.sh -v  # later runs (always uses .venv/bin/python)
 ```
+
+### macOS: `pytest` / `TimeoutError: Operation timed out`
+
+This usually means the **virtualenv under `~/Documents` is broken or stalled** (iCloud Drive, antivirus, or a partial install). It is **not** an application logic error.
+
+**Fix:**
+
+```bash
+cd backend
+rm -rf .venv
+./scripts/setup_venv.sh
+./scripts/run_dev.sh
+```
+
+Use `./scripts/run_tests.sh` instead of `python3 -m pytest` so tests always run inside `.venv`.
+
+If timeouts persist, clone or move the repo to a local non-synced folder (e.g. `~/Developer/RV_App_MATLAB`).
 
 ### Demo session (no image)
 

@@ -37,5 +37,5 @@ def clamp_index(idx: int, length: int, name: str = "index") -> int:
     if length < 1:
         raise HTTPException(400, "Waveform is empty")
     if idx < 0 or idx >= length:
-        raise HTTPException(400, f"Invalid {name}: {idx} (length {length})")
-    return idx
+        return int(max(0, min(idx, length - 1)))
+    return int(idx)

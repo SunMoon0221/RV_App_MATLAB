@@ -19,6 +19,15 @@ from app.services.derivatives import (
 from app.services.pmax_methods import attach_downstream_metrics, run_all_pmax_methods
 
 
+def _remap_sample_index(idx: int, time_in: np.ndarray, time_out: np.ndarray) -> int:
+    """Map a sample index from pre-resample time base to post-resample (500 Hz) indices."""
+    if len(time_in) < 1 or len(time_out) < 1:
+        return 0
+    idx = int(np.clip(idx, 0, len(time_in) - 1))
+    t = float(time_in[idx])
+    return int(np.clip(np.searchsorted(time_out, t), 0, len(time_out) - 1))
+
+
 def compute_hemodynamics(
     time_s: np.ndarray,
     pressure: np.ndarray,
@@ -44,6 +53,7 @@ def compute_hemodynamics(
     pressure = np.asarray(pressure, dtype=float).ravel()
     n = min(len(time_s), len(pressure))
     time_s, pressure = time_s[:n], pressure[:n]
+    time_in = time_s.copy()
 
     # Uniform resample to 500 Hz (MATLAB normalizeToFixedRate)
     t_u, ia = np.unique(time_s, return_index=True)
@@ -55,6 +65,16 @@ def compute_hemodynamics(
         t_uniform = t_uniform[t_uniform <= t_u[-1]]
     p_uniform = np.interp(t_uniform, t_u, p_u)
     time_s, pressure = t_uniform, p_uniform
+    n = len(time_s)
+
+    if event_marker_peaks is not None:
+        event_marker_peaks = [
+            _remap_sample_index(int(p), time_in, time_s) for p in event_marker_peaks
+        ]
+    if esp_idx is not None:
+        esp_idx = _remap_sample_index(int(esp_idx), time_in, time_s)
+    if edp_idx is not None:
+        edp_idx = _remap_sample_index(int(edp_idx), time_in, time_s)
 
     p_filt = butterworth_lowpass(pressure, fs, cutoff_hz)
     p_smooth = gaussian_smooth_pressure(p_filt, fs, sigma_ms)
@@ -80,12 +100,13 @@ def compute_hemodynamics(
     event_marker = build_event_marker_signal(p_smooth, time_s, marker_sigma_ms, fs)
     peaks = event_marker_peaks
     if peaks is not None:
-        peaks = sorted(int(p) for p in peaks)
+        peaks = sorted(int(np.clip(int(p), 0, n - 1)) for p in peaks)
         if len(peaks) < 4:
             raise ValueError("Select exactly 4 event-marker peaks")
-        peaks = [int(np.clip(p, 0, n - 1)) for p in peaks]
-        esp_idx = peaks[2]  # MATLAB peaks(3) — third peak = ESP
-        edp_idx = find_closest_index_half_height(event_marker, peaks)
+        if esp_idx is None:
+            esp_idx = peaks[2]  # MATLAB peaks(3) — third peak = ESP
+        if edp_idx is None:
+            edp_idx = find_closest_index_half_height(event_marker, peaks)
     if esp_idx is None:
         if peaks and len(peaks) >= 3:
             esp_idx = peaks[2]
@@ -100,6 +121,10 @@ def compute_hemodynamics(
     edp_idx = int(np.clip(edp_idx, 0, n - 1))
     esp = float(p_smooth[esp_idx])
     edp = float(p_smooth[edp_idx])
+
+    # Fitted Pmax can sit slightly below a user-picked systolic sample; keep Ees well-posed.
+    if esp >= pmax_scaled:
+        pmax_scaled = max(pmax_scaled, esp + 0.05)
 
     # Hemodynamics from selected scaled Pmax (MATLAB)
     ees = (pmax_scaled - esp) / stroke_volume_ml
@@ -164,7 +189,7 @@ def _resolve_selected_pmax(
     names = [m["name"] for m in method_results]
     idx = None
     for i, n in enumerate(names):
-        if n.lower() == selected_name.lower():
+        if n.lower() == selected_name.lower() and method_results[i].get("success"):
             idx = i
             break
     if idx is None:

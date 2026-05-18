@@ -183,18 +183,27 @@ def _qc_beat(t: np.ndarray, p: np.ndarray, beat: BeatInfo) -> tuple[bool, str]:
 
 
 def beats_to_dicts(beats: list[BeatInfo]) -> list[dict]:
+    """JSON-safe beat dicts (plain int/float, no numpy scalars)."""
+
+    def _num(x):
+        if isinstance(x, (np.integer,)):
+            return int(x)
+        if isinstance(x, (np.floating,)):
+            return float(x)
+        return x
+
     return [
         {
-            "start_idx": b.start_idx,
-            "end_idx": b.end_idx,
-            "peak_idx": b.peak_idx,
-            "start_time": b.start_time,
-            "end_time": b.end_time,
-            "peak_time": b.peak_time,
-            "peak_pressure": b.peak_pressure,
-            "keep": b.keep,
-            "qc_passed": b.qc_passed,
-            "qc_message": b.qc_message,
+            "start_idx": int(b.start_idx),
+            "end_idx": int(b.end_idx),
+            "peak_idx": int(b.peak_idx),
+            "start_time": _num(b.start_time),
+            "end_time": _num(b.end_time),
+            "peak_time": _num(b.peak_time),
+            "peak_pressure": _num(b.peak_pressure),
+            "keep": bool(b.keep),
+            "qc_passed": bool(b.qc_passed),
+            "qc_message": str(b.qc_message),
         }
         for b in beats
     ]
