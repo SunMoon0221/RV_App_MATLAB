@@ -67,6 +67,14 @@ def _session_url(session_id: str, filename: str) -> str:
     return f"/api/session/{session_id}/file/{filename}"
 
 
+def _write_mask_preview(session_id: str, bgr: np.ndarray, filtered: np.ndarray) -> None:
+    """Save blended green mask overlay for UI preview."""
+    preview = bgr.copy().astype(np.float32)
+    tint = np.array([0, 255, 0], dtype=np.float32)
+    preview[filtered] = 0.45 * preview[filtered] + 0.55 * tint
+    cv2.imwrite(str(store.image_path(session_id, "mask_preview.png")), preview.astype(np.uint8))
+
+
 def _ensure_median_rows(session_id: str) -> tuple[np.ndarray, np.ndarray]:
     """Rebuild median rows from current mask if missing."""
     med = store.load_array(session_id, "median_rows")
@@ -180,10 +188,7 @@ def process_image(session_id: str, body: ProcessImageRequest) -> ProcessImageRes
     store.save_array(session_id, "median_rows", np.column_stack([x_px, y_px]))
     np.save(store._path(session_id) / "grayscale.npy", gray)
 
-    # Mask preview PNG
-    overlay = bgr.copy()
-    overlay[filtered] = [0, 255, 0]
-    cv2.imwrite(str(store.image_path(session_id, "mask_preview.png")), overlay)
+    _write_mask_preview(session_id, bgr, filtered)
 
     state.threshold = threshold
     state.apply_notch_filter = body.apply_notch_filter
@@ -229,6 +234,7 @@ def get_masks(session_id: str) -> dict:
         "filtered_mask_b64": enc(filtered) if filtered is not None else enc(base),
         "median_rows": {"x": x_px.tolist(), "y": [float(v) if np.isfinite(v) else None for v in y_px]},
         "image_url": _session_url(session_id, "displayed.png"),
+        "mask_preview_url": _session_url(session_id, "mask_preview.png"),
     }
 
 
@@ -271,9 +277,7 @@ def update_masks(session_id: str, body: MaskUpdateRequest) -> MaskFinalizeRespon
     store.save_array(session_id, "median_rows", np.column_stack([x_px, y_px]))
 
     bgr = load_image_bgr(store.image_path(session_id, "displayed.png").read_bytes())
-    overlay = bgr.copy()
-    overlay[filtered] = [0, 255, 0]
-    cv2.imwrite(str(store.image_path(session_id, "mask_preview.png")), overlay)
+    _write_mask_preview(session_id, bgr, filtered)
     store.save_state(state)
 
     return MaskFinalizeResponse(

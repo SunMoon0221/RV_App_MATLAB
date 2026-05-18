@@ -27,7 +27,11 @@ cd backend
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+# Recommended (only reloads when app/ code changes — avoids .venv restart loops):
+./scripts/run_dev.sh
+
+# Or manually:
+PYTHONPATH=. python3 -m uvicorn app.main:app --reload --reload-dir app --host 127.0.0.1 --port 8000
 ```
 
 ### Frontend

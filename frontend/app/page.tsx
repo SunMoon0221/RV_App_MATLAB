@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { WorkflowStepper } from "@/components/WorkflowStepper";
 import { ImageUploader } from "@/components/ImageUploader";
-import { ProcessingPanel } from "@/components/ProcessingPanel";
+import { ProcessingPanel, ProcessContinueButton } from "@/components/ProcessingPanel";
 import dynamic from "next/dynamic";
 
 const MaskEditorCanvas = dynamic(() => import("@/components/MaskEditorCanvas").then((m) => m.MaskEditorCanvas), {
@@ -35,6 +35,7 @@ import {
 export default function HomePage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [maskPreviewUrl, setMaskPreviewUrl] = useState<string | null>(null);
   const [step, setStep] = useState<StepId>("upload");
   const [statuses, setStatuses] = useState<Record<string, StepStatus>>({});
   const [calibrated, setCalibrated] = useState<WaveformData | null>(null);
@@ -59,6 +60,7 @@ export default function HomePage() {
   const onUploaded = (id: string, url: string) => {
     setSessionId(id);
     setPreviewUrl(url);
+    setMaskPreviewUrl(null);
     setCalibrated(null);
     setAveraged(null);
     setHemo(null);
@@ -141,27 +143,38 @@ export default function HomePage() {
           {step === "upload" && <ImageUploader onUploaded={onUploaded} />}
           {step === "process" && sessionId && (
             <>
-              {previewUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={previewUrl} alt="Waveform" className="mb-4 max-h-96 rounded border object-contain" />
-              )}
               <ProcessingPanel
                 sessionId={sessionId}
-                onProcessed={() => {
-                  setStep("edit_mask");
+                originalPreviewUrl={previewUrl}
+                onProcessed={(maskUrl) => {
+                  setMaskPreviewUrl(maskUrl);
                   void refreshStatus(sessionId);
                 }}
+              />
+              <ProcessContinueButton
+                visible={!!maskPreviewUrl}
+                onContinue={() => setStep("edit_mask")}
               />
             </>
           )}
           {step === "edit_mask" && sessionId && (
-            <MaskEditorCanvas
+            <>
+              {maskPreviewUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={maskPreviewUrl}
+                  alt="Processed mask"
+                  className="mb-4 max-h-48 rounded border object-contain"
+                />
+              )}
+              <MaskEditorCanvas
               sessionId={sessionId}
               onFinalized={() => {
                 setStep("calibrate");
                 void refreshStatus(sessionId);
               }}
             />
+            </>
           )}
           {step === "calibrate" && sessionId && (
             <ReplaceLineEditor sessionId={sessionId} onDone={() => void loadCalibrated()} />

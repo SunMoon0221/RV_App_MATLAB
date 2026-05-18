@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 from scipy import ndimage
-from skimage import morphology
+from skimage.morphology import closing, disk, erosion, dilation, opening, remove_small_objects
 
 try:
     import cv2
@@ -58,9 +58,10 @@ def threshold_mask(gray: np.ndarray, threshold: int) -> np.ndarray:
 
 def clean_mask(mask: np.ndarray, min_size: int = 30) -> np.ndarray:
     """Morphological open/close and remove small objects."""
-    cleaned = morphology.remove_small_objects(mask, min_size=min_size)
-    cleaned = morphology.binary_closing(cleaned, morphology.disk(2))
-    cleaned = morphology.binary_opening(cleaned, morphology.disk(1))
+    # max_size: remove connected components with area <= max_size (skimage >= 0.26)
+    cleaned = remove_small_objects(mask, max_size=max(min_size - 1, 1))
+    cleaned = closing(cleaned, disk(2))
+    cleaned = opening(cleaned, disk(1))
     return cleaned
 
 
@@ -91,7 +92,7 @@ def extract_median_rows(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 def rebuild_edges_from_mask(mask: np.ndarray) -> np.ndarray:
     """Edge/cleaned mask via morphological gradient."""
-    return morphology.binary_dilation(mask) ^ morphology.binary_erosion(mask)
+    return dilation(mask, disk(1)) ^ erosion(mask, disk(1))
 
 
 def mask_to_overlay_rgba(mask: np.ndarray, color: tuple[int, int, int, int] = (0, 255, 0, 120)) -> np.ndarray:
