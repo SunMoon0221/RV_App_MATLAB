@@ -21,12 +21,18 @@ export function BeatEditor({
   const [loading, setLoading] = useState(false);
   const [addMode, setAddMode] = useState<"left" | "right" | null>(null);
   const [pending, setPending] = useState<{ left?: number; right?: number }>({});
+  const [error, setError] = useState<string | null>(null);
+
+  const keptCount = beats.filter((b) => b.keep).length;
 
   const runDetect = async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await detectBeats(sessionId);
       setBeats(res.beats);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Detection failed");
     } finally {
       setLoading(false);
     }
@@ -71,9 +77,24 @@ export function BeatEditor({
   };
 
   const submitAverage = async () => {
-    if (beats.length === 0) return;
-    await averageBeats(sessionId, beats);
-    onAveraged();
+    if (beats.length === 0) {
+      setError("Add or detect at least one beat first.");
+      return;
+    }
+    if (keptCount === 0) {
+      setError("Check “Keep” for at least one beat before averaging.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await averageBeats(sessionId, beats);
+      onAveraged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Averaging failed");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -85,10 +106,14 @@ export function BeatEditor({
         <Button variant="outline" onClick={() => { setAddMode("left"); setPending({}); }}>
           Add beat manually
         </Button>
-        <Button onClick={() => void submitAverage()} disabled={beats.length === 0}>
-          Average selected beats
+        <Button onClick={() => void submitAverage()} disabled={loading || beats.length === 0 || keptCount === 0}>
+          Average selected beats ({keptCount})
         </Button>
       </div>
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      {!trace && (
+        <p className="text-sm text-amber-800">Calibrated trace not loaded — complete calibration first.</p>
+      )}
       {trace && (
         <Plot
           data={[

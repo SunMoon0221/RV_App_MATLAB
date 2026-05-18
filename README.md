@@ -27,12 +27,15 @@ cd backend
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-# Recommended (only reloads when app/ code changes — avoids .venv restart loops):
+# Recommended — only reloads when app/ changes (avoids .venv restart loops):
+chmod +x scripts/run_dev.sh
 ./scripts/run_dev.sh
 
 # Or manually:
 PYTHONPATH=. python3 -m uvicorn app.main:app --reload --reload-dir app --host 127.0.0.1 --port 8000
 ```
+
+**Important:** Do not use bare `--reload` without `--reload-dir app` — it watches `.venv` and causes crashes / `socket hang up` in the frontend.
 
 ### Frontend
 

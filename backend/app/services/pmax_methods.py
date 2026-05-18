@@ -85,26 +85,19 @@ def run_all_pmax_methods(
     stroke_volume: float | None = None,
 ) -> list[dict[str, Any]]:
     """Run every method; one failure must not affect others."""
-    runners = [
-        original_piecewise_sinusoid,
-        brimioulle_sine,
-        rv_isomax_sine,
-        second_derivative_sine,
-        kremer_shih_tangent,
+    runners: list[tuple[str, str, str, Any]] = [
+        ("Original Piecewise Sinusoid", "Orig", "piecewise", original_piecewise_sinusoid),
+        ("Brimioulle Sine", "Brim", "sine", brimioulle_sine),
+        ("RV IsoMax Sine", "IsoMax", "sine", rv_isomax_sine),
+        ("Second Derivative Sine", "2ndSin", "sine", second_derivative_sine),
+        ("Kremer/Shih Tangent", "K/S", "tangent", kremer_shih_tangent),
     ]
     results: list[dict[str, Any]] = []
-    for runner in runners:
+    for name, short, kind, runner in runners:
         try:
             r = runner(time_s, pressure, scale_factor, fs, esp, edp, stroke_volume)
         except Exception as exc:  # noqa: BLE001 — research: isolate method failures
-            r = empty_result(
-                runner.__name__.replace("_", " ").title(),
-                runner.__name__[:8],
-                "unknown",
-                False,
-                str(exc),
-                scale_factor,
-            )
+            r = empty_result(name, short, kind, False, str(exc), scale_factor)
         r["is_selected"] = r["name"] == selected_method
         if r["success"] and scale_factor != 1.0 and r.get("raw_pmax") is not None:
             r["scaled_pmax"] = r["raw_pmax"] * scale_factor

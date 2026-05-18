@@ -107,6 +107,7 @@ class SessionStore:
             "median_rows.npy",
             "calibrated_trace.npy",
             "averaged_waveform.npy",
+            "grayscale.npy",
             "detected_beats.json",
             "manual_beats.json",
             "pmax_results.json",
@@ -115,6 +116,25 @@ class SessionStore:
             f = path / name
             if f.exists():
                 f.unlink()
+        for png in ("mask_preview.png",):
+            f = path / png
+            if f.exists():
+                f.unlink()
+        self._clear_analysis_state(state)
+        self.save_state(state)
+
+    def reset_after_reprocess(self, session_id: str) -> None:
+        """Clear downstream calibration/analysis when masks are re-built."""
+        state = self.get(session_id)
+        path = self._path(session_id)
+        for name in ["calibrated_trace.npy", "averaged_waveform.npy"]:
+            f = path / name
+            if f.exists():
+                f.unlink()
+        self._clear_analysis_state(state)
+        self.save_state(state)
+
+    def _clear_analysis_state(self, state: SessionState) -> None:
         state.detected_beats = []
         state.manual_beats = []
         state.averaged_waveform = None
@@ -122,7 +142,6 @@ class SessionStore:
         state.pmax_method_results = []
         state.hemodynamic_results = None
         state.calibration = CalibrationParams()
-        self.save_state(state)
 
     def save_mask(self, session_id: str, name: str, mask: np.ndarray) -> None:
         np.save(self._path(session_id) / f"{name}.npy", mask.astype(np.bool_))

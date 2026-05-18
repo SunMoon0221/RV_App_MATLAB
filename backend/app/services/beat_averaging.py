@@ -56,7 +56,16 @@ def detect_beats(
     """
     t, p = clean_trace(time_s, pressure)
     t, p = resample_trace(t, p, fs)
-    p_smooth = signal.savgol_filter(p, window_length=min(51, len(p) // 2 * 2 + 1), polyorder=3)
+    win = min(51, len(p) // 2 * 2 + 1)
+    win = max(win, 5)
+    if win % 2 == 0:
+        win -= 1
+    if win >= len(p):
+        win = len(p) - 1 if len(p) % 2 == 0 else len(p) - 2
+    if win < 5:
+        p_smooth = p.copy()
+    else:
+        p_smooth = signal.savgol_filter(p, window_length=win, polyorder=min(3, win - 2))
 
     peaks = _find_peaks_progressive(p_smooth)
     if len(peaks) < 1:

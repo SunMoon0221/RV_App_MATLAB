@@ -27,15 +27,19 @@ export function CalibrationCanvas({
   const [pressureSpan, setPressureSpan] = useState(30);
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   const [dims, setDims] = useState({ w: 800, h: 400 });
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const img = new window.Image();
     img.crossOrigin = "anonymous";
-    img.src = imageUrl;
+    img.src = `${imageUrl}?t=${Date.now()}`;
     img.onload = () => {
       setBg(img);
       setDims({ w: img.width, h: img.height });
+      setError(null);
     };
+    img.onerror = () => setError("Could not load image for calibration.");
   }, [imageUrl]);
 
   const onStageClick = useCallback(
@@ -64,14 +68,22 @@ export function CalibrationCanvas({
 
   const submit = async () => {
     if (!hLine || !vLine || !origin) return;
-    await calibrate(sessionId, {
-      horizontal_line: hLine as [number, number, number, number],
-      vertical_line: vLine as [number, number, number, number],
-      origin,
-      time_span_seconds: timeSpan,
-      pressure_span_mmhg: pressureSpan,
-    });
-    onCalibrated();
+    setSaving(true);
+    setError(null);
+    try {
+      await calibrate(sessionId, {
+        horizontal_line: hLine as [number, number, number, number],
+        vertical_line: vLine as [number, number, number, number],
+        origin,
+        time_span_seconds: timeSpan,
+        pressure_span_mmhg: pressureSpan,
+      });
+      onCalibrated();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Calibration failed");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const scale = Math.min(1, 900 / dims.w);
@@ -114,8 +126,9 @@ export function CalibrationCanvas({
           </Layer>
         </Stage>
       )}
-      <Button onClick={() => void submit()} disabled={step !== "done"}>
-        Apply calibration
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <Button onClick={() => void submit()} disabled={step !== "done" || saving || !bg}>
+        {saving ? "Applying…" : "Apply calibration"}
       </Button>
     </div>
   );

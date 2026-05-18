@@ -37,10 +37,13 @@ def compute_hemodynamics(
     dpdt, d2, _ = compute_derivatives(time_s, p_smooth, fs)
     i_dpdt_max, i_dpdt_min = find_dpdt_extrema(dpdt)
 
+    n = len(p_smooth)
     if esp_idx is None:
         esp_idx = int(np.argmax(p_smooth[i_dpdt_max:]) + i_dpdt_max)
     if edp_idx is None:
         edp_idx = int(np.argmin(p_smooth[: i_dpdt_max + 1]))
+    esp_idx = int(np.clip(esp_idx, 0, n - 1))
+    edp_idx = int(np.clip(edp_idx, 0, n - 1))
 
     esp = float(p_smooth[esp_idx])
     edp = float(p_smooth[edp_idx])
@@ -71,7 +74,12 @@ def compute_hemodynamics(
         edp=edp,
         stroke_volume=stroke_volume_ml,
     )
-    selected = next((m for m in pmax_results if m.get("is_selected")), pmax_results[0])
+    selected = next((m for m in pmax_results if m.get("is_selected")), None)
+    if selected is None:
+        selected = next(
+            (m for m in pmax_results if m.get("name") == "Original Piecewise Sinusoid"),
+            pmax_results[0],
+        )
     pmax = selected.get("scaled_pmax") or selected.get("raw_pmax")
 
     # Enrich methods with shared hemodynamics
@@ -104,6 +112,7 @@ def compute_hemodynamics(
         "edp_idx": edp_idx,
         "dpdt_max_idx": i_dpdt_max,
         "dpdt_min_idx": i_dpdt_min,
+        "event_marker_peak_indices": event_marker_peaks or [],
     }
     return hemo, pmax_results
 

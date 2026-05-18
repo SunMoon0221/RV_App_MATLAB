@@ -9,14 +9,36 @@ import type { WaveformData } from "@/lib/types";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
-/** Build event-marker signal client-side for peak picking UI */
-function eventMarker(pressure: number[], sigma = 15): number[] {
-  const n = pressure.length;
-  const dp = pressure.map((_, i) => (i ? pressure[i] - pressure[i - 1] : 0));
+/** Gaussian smooth then derivative-based event marker (preview aligns with server sigma). */
+function eventMarker(pressure: number[], sigmaMs: number, fs = 500): number[] {
+  const sigmaSamples = Math.max(1, (sigmaMs / 1000) * fs);
+  const smoothed = gaussian1d(pressure, sigmaSamples);
+  const dp = smoothed.map((_, i) => (i ? smoothed[i] - smoothed[i - 1] : 0));
   const d2 = dp.map((_, i) => (i ? dp[i] - dp[i - 1] : 0));
   const em = dp.map((v, i) => Math.abs(v) + 0.5 * Math.abs(d2[i]));
   const max = Math.max(...em, 1e-9);
   return em.map((v) => v / max);
+}
+
+function gaussian1d(data: number[], sigma: number): number[] {
+  const radius = Math.ceil(sigma * 3);
+  const k: number[] = [];
+  let sum = 0;
+  for (let i = -radius; i <= radius; i++) {
+    const w = Math.exp(-(i * i) / (2 * sigma * sigma));
+    k.push(w);
+    sum += w;
+  }
+  const out = new Array(data.length).fill(0);
+  for (let i = 0; i < data.length; i++) {
+    let v = 0;
+    for (let j = -radius; j <= radius; j++) {
+      const idx = Math.min(data.length - 1, Math.max(0, i + j));
+      v += data[idx] * k[j + radius];
+    }
+    out[i] = v / sum;
+  }
+  return out;
 }
 
 function findPeaks(sig: number[], minDist = 20): number[] {

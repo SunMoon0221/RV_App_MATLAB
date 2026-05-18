@@ -8,10 +8,23 @@ import type {
 
 const API = "/api";
 
+function parseErrorMessage(res: Response, bodyText: string): string {
+  try {
+    const data = JSON.parse(bodyText) as { detail?: string | { msg: string }[] };
+    if (typeof data.detail === "string") return data.detail;
+    if (Array.isArray(data.detail)) {
+      return data.detail.map((d) => d.msg).join("; ");
+    }
+  } catch {
+    /* use raw text */
+  }
+  return bodyText || res.statusText;
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || res.statusText);
+    throw new Error(parseErrorMessage(res, text));
   }
   return res.json() as Promise<T>;
 }
@@ -52,6 +65,7 @@ export async function getMasks(sessionId: string) {
     manual_erase_b64: string;
     trace_keep_b64: string;
     image_url: string;
+    mask_preview_url: string;
     median_rows: { x: number[]; y: (number | null)[] };
   }>(await fetch(`${API}/session/${sessionId}/masks`));
 }
@@ -146,6 +160,8 @@ export async function runSingleBeatAnalysis(
       event_marker_peak_indices: number[];
       smoothing_sigma_ms: number;
     };
+    filter_cutoff_hz?: number;
+    gaussian_sigma_ms?: number;
   }
 ) {
   return json<{
@@ -174,7 +190,7 @@ export function exportZipUrl(sessionId: string) {
 }
 
 export async function createMockSession() {
-  return json<{ session_id: string }>(
+  return json<{ session_id: string; is_mock?: boolean }>(
     await fetch(`${API}/mock-session`, { method: "POST" })
   );
 }

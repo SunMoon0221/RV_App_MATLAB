@@ -293,9 +293,23 @@ export function MaskEditorCanvas({
           if (mode === "trace") commitTrace();
         }}
         onMouseLeave={() => {
+          if (drawing.current && mode === "trace") commitTrace();
           drawing.current = false;
         }}
         onMouseMove={onPointerMove}
+        onTouchStart={(e) => {
+          e.evt.preventDefault();
+          drawing.current = true;
+          onPointerMove(e);
+        }}
+        onTouchMove={(e) => {
+          e.evt.preventDefault();
+          if (drawing.current) onPointerMove(e);
+        }}
+        onTouchEnd={() => {
+          drawing.current = false;
+          if (mode === "trace") commitTrace();
+        }}
         className="rounded border border-border bg-neutral-900/10 shadow-inner"
       >
         <Layer>

@@ -26,6 +26,7 @@ def build_mock_session(store: SessionStore) -> dict:
 
     return {
         "session_id": sid,
-        "message": "Mock session with synthetic calibrated trace",
+        "message": "Mock session with synthetic calibrated trace (no image upload)",
         "calibrated_trace_url": f"/api/session/{sid}/calibrated_trace.json",
+        "is_mock": True,
     }

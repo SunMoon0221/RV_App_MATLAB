@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import base64
-import io
-import json
 from pathlib import Path
 
 import cv2
@@ -12,7 +10,8 @@ import numpy as np
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+
+from app.http_helpers import clamp_index, get_session_or_404, safe_session_file
 
 from app.schemas import (
     AverageBeatsRequest,
@@ -59,10 +58,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DATA_ROOT = Path(__file__).resolve().parents[2] / "data"
-DATA_ROOT.mkdir(parents=True, exist_ok=True)
-
-
 def _session_url(session_id: str, filename: str) -> str:
     return f"/api/session/{session_id}/file/{filename}"
 
@@ -91,13 +86,17 @@ def _ensure_median_rows(session_id: str) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _mask_from_b64(b64: str, shape: tuple[int, int]) -> np.ndarray:
+    """Decode PNG (or raw) mask; must match session height x width."""
+    h, w = shape
     raw = base64.b64decode(b64.split(",")[-1] if "," in b64 else b64)
     arr = np.frombuffer(raw, dtype=np.uint8)
-    if arr.size == shape[0] * shape[1]:
-        return arr.reshape(shape).astype(bool)
+    if arr.size == h * w:
+        return arr.reshape((h, w)).astype(bool)
     img = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
     if img is None:
-        raise ValueError("Invalid mask encoding")
+        raise HTTPException(400, "Invalid mask encoding")
+    if img.shape != (h, w):
+        raise HTTPException(400, f"Mask size {img.shape} does not match image {shape}")
     return img > 127
 
 
@@ -109,7 +108,11 @@ async def upload_session(file: UploadFile = File(...)) -> UploadResponse:
     store.save_image(state.session_id, "original.png", data)
     store.save_image(state.session_id, "displayed.png", data)
 
-    bgr = load_image_bgr(data)
+    try:
+        bgr = load_image_bgr(data)
+    except ValueError as exc:
+        store.delete(state.session_id)
+        raise HTTPException(400, str(exc)) from exc
     state.width, state.height = bgr.shape[1], bgr.shape[0]
     store.save_state(state)
 
@@ -166,6 +169,9 @@ def process_image(session_id: str, body: ProcessImageRequest) -> ProcessImageRes
     orig_path = store.image_path(session_id, "original.png")
     if not orig_path.exists():
         raise HTTPException(400, "No image uploaded")
+
+    store.reset_after_reprocess(session_id)
+    state = store.get(session_id)
 
     bgr = load_image_bgr(orig_path.read_bytes())
     gray = to_grayscale(bgr)
@@ -308,12 +314,15 @@ def calibrate_session(session_id: str, body: CalibrationRequest) -> CalibrationR
         raise HTTPException(404, "Session not found") from None
 
     x_px, y_px = _ensure_median_rows(session_id)
-    x_ratio, y_ratio = compute_ratios(
-        body.horizontal_line,
-        body.vertical_line,
-        body.time_span_seconds,
-        body.pressure_span_mmhg,
-    )
+    try:
+        x_ratio, y_ratio = compute_ratios(
+            body.horizontal_line,
+            body.vertical_line,
+            body.time_span_seconds,
+            body.pressure_span_mmhg,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     ox, oy = body.origin
     params = CalibrationParams(
         origin_x=ox,
@@ -351,6 +360,7 @@ def calibrated_trace_json(session_id: str) -> dict:
 
 @app.post("/api/session/{session_id}/replace-line")
 def replace_line(session_id: str, body: ReplaceLineRequest) -> dict:
+    get_session_or_404(session_id)
     x_px, y_px = _ensure_median_rows(session_id)
     y_new = replace_line_segment(x_px, y_px.astype(float), body.point1, body.point2)
     store.save_array(session_id, "median_rows", np.column_stack([x_px, y_new]))
@@ -368,11 +378,11 @@ def replace_line(session_id: str, body: ReplaceLineRequest) -> dict:
 
 @app.post("/api/session/{session_id}/detect-beats", response_model=DetectBeatsResponse)
 def detect_beats_endpoint(session_id: str) -> DetectBeatsResponse:
+    state = get_session_or_404(session_id)
     cal = store.load_array(session_id, "calibrated_trace")
     if cal is None:
         raise HTTPException(400, "Calibrate first")
     beats = detect_beats(cal[:, 0], cal[:, 1])
-    state = store.get(session_id)
     state.detected_beats = beats_to_dicts(beats)
     state.manual_beats = list(state.detected_beats)
     store.save_state(state)
@@ -386,15 +396,21 @@ def detect_beats_endpoint(session_id: str) -> DetectBeatsResponse:
 
 @app.post("/api/session/{session_id}/average-beats", response_model=AverageBeatsResponse)
 def average_beats_endpoint(session_id: str, body: AverageBeatsRequest) -> AverageBeatsResponse:
+    get_session_or_404(session_id)
     cal = store.load_array(session_id, "calibrated_trace")
     if cal is None:
         raise HTTPException(400, "Calibrate first")
     beats = dicts_to_beats([b.model_dump() for b in body.beats])
     if len(beats) != len(body.beats):
         raise HTTPException(400, "Beat count mismatch")
+    if not any(b.keep for b in body.beats):
+        raise HTTPException(400, "Select at least one beat to average (keep=true)")
     for b, seg in zip(beats, body.beats):
         b.keep = seg.keep
-    t_avg, p_avg, mean_corr = average_beats(cal[:, 0], cal[:, 1], beats)
+    try:
+        t_avg, p_avg, mean_corr = average_beats(cal[:, 0], cal[:, 1], beats)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     # Scale normalized time to physiological duration (mean beat length)
     durations = [b.end_time - b.start_time for b in beats if b.keep]
     dur = float(np.mean(durations)) if durations else 1.0
@@ -436,13 +452,19 @@ def single_beat_analysis(session_id: str, body: SingleBeatAnalysisRequest) -> Si
     if avg is None:
         raise HTTPException(400, "Average beats first")
 
+    get_session_or_404(session_id)
     esp_idx = edp_idx = None
+    sigma_ms = body.gaussian_sigma_ms
+    event_peaks: list[int] | None = None
     if body.peak_selection:
         peaks = body.peak_selection.event_marker_peak_indices
         if len(peaks) != 4:
             raise HTTPException(400, "Select exactly 4 event-marker peaks")
-        esp_idx = body.peak_selection.esp_peak_indices[0]
-        edp_idx = body.peak_selection.edp_peak_indices[0]
+        event_peaks = peaks
+        n = len(avg)
+        esp_idx = clamp_index(body.peak_selection.esp_peak_indices[0], n, "esp_idx")
+        edp_idx = clamp_index(body.peak_selection.edp_peak_indices[0], n, "edp_idx")
+        sigma_ms = body.peak_selection.smoothing_sigma_ms
 
     hemo, methods = hemodynamics.compute_hemodynamics(
         avg[:, 0],
@@ -450,11 +472,11 @@ def single_beat_analysis(session_id: str, body: SingleBeatAnalysisRequest) -> Si
         body.stroke_volume_ml,
         body.pmax_scale_factor,
         body.selected_pmax_method,
-        body.peak_selection.event_marker_peak_indices if body.peak_selection else None,
+        event_peaks,
         esp_idx,
         edp_idx,
         cutoff_hz=body.filter_cutoff_hz,
-        sigma_ms=body.gaussian_sigma_ms,
+        sigma_ms=sigma_ms,
     )
 
     state = store.get(session_id)
@@ -481,7 +503,7 @@ def single_beat_analysis(session_id: str, body: SingleBeatAnalysisRequest) -> Si
 
 @app.get("/api/session/{session_id}/analysis")
 def get_analysis(session_id: str) -> dict:
-    state = store.get(session_id)
+    state = get_session_or_404(session_id)
     return {
         "hemodynamics": state.hemodynamic_results,
         "pmax_methods": state.pmax_method_results,
@@ -491,20 +513,15 @@ def get_analysis(session_id: str) -> dict:
 
 @app.get("/api/session/{session_id}/export/zip")
 def export_zip(session_id: str) -> FileResponse:
-    state = store.get(session_id)
+    state = get_session_or_404(session_id)
     zip_path = exports.export_session_bundle(store, state)
     return FileResponse(zip_path, media_type="application/zip", filename=f"{session_id}_exports.zip")
 
 
 @app.get("/api/session/{session_id}/file/{filename}")
 def get_file(session_id: str, filename: str) -> FileResponse:
-    path = store.image_path(session_id, filename)
-    if not path.exists():
-        path = store._path(session_id) / filename
-    if not path.exists():
-        path = store.export_path(session_id, filename)
-    if not path.exists():
-        raise HTTPException(404, "File not found")
+    get_session_or_404(session_id)
+    path = safe_session_file(session_id, filename)
     return FileResponse(path)
 
 

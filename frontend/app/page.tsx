@@ -47,6 +47,8 @@ export default function HomePage() {
   const [pmaxScale, setPmaxScale] = useState(1);
   const [peakModal, setPeakModal] = useState(false);
   const [pendingAnalysis, setPendingAnalysis] = useState(false);
+  const [isMockSession, setIsMockSession] = useState(false);
+  const [globalError, setGlobalError] = useState<string | null>(null);
 
   const refreshStatus = useCallback(async (id: string) => {
     const s = await getSessionStatus(id);
@@ -57,7 +59,16 @@ export default function HomePage() {
     if (sessionId) void refreshStatus(sessionId);
   }, [sessionId, step, refreshStatus]);
 
-  const onUploaded = (id: string, url: string) => {
+  const resetWorkflowInputs = () => {
+    setSv(30);
+    setPmaxScale(1);
+    setSelectedMethod("Original Piecewise Sinusoid");
+    setPeakModal(false);
+    setPendingAnalysis(false);
+    setGlobalError(null);
+  };
+
+  const onUploaded = (id: string, url: string | null, opts?: { isMock?: boolean }) => {
     setSessionId(id);
     setPreviewUrl(url);
     setMaskPreviewUrl(null);
@@ -65,11 +76,15 @@ export default function HomePage() {
     setAveraged(null);
     setHemo(null);
     setMethods([]);
-    const isMock = url.includes("calibrated_trace");
+    resetWorkflowInputs();
+    const isMock = opts?.isMock ?? false;
+    setIsMockSession(isMock);
     setStep(isMock ? "average_beats" : "process");
-    void refreshStatus(id);
+    void refreshStatus(id).catch(() => undefined);
     if (isMock) {
-      void getCalibratedTrace(id).then(setCalibrated);
+      void getCalibratedTrace(id)
+        .then(setCalibrated)
+        .catch((e) => setGlobalError(e instanceof Error ? e.message : "Failed to load demo trace"));
     }
   };
 
@@ -98,18 +113,24 @@ export default function HomePage() {
   }) => {
     if (!sessionId) return;
     setPeakModal(false);
-    const res = await runSingleBeatAnalysis(sessionId, {
-      stroke_volume_ml: sv,
-      pmax_scale_factor: pmaxScale,
-      selected_pmax_method: selectedMethod,
-      peak_selection: peaks,
-    });
-    setHemo(res.hemodynamics);
-    setMethods(res.pmax_methods);
-    setSelectedMethod(res.selected_method);
-    setStep("export");
-    void refreshStatus(sessionId);
-    setPendingAnalysis(false);
+    setGlobalError(null);
+    try {
+      const res = await runSingleBeatAnalysis(sessionId, {
+        stroke_volume_ml: sv,
+        pmax_scale_factor: pmaxScale,
+        selected_pmax_method: selectedMethod,
+        peak_selection: peaks,
+      });
+      setHemo(res.hemodynamics);
+      setMethods(res.pmax_methods);
+      setSelectedMethod(res.selected_method);
+      setStep("export");
+      void refreshStatus(sessionId);
+    } catch (e) {
+      setGlobalError(e instanceof Error ? e.message : "Analysis failed");
+    } finally {
+      setPendingAnalysis(false);
+    }
   };
 
   const loadExistingAnalysis = async () => {
@@ -179,7 +200,7 @@ export default function HomePage() {
           {step === "calibrate" && sessionId && (
             <ReplaceLineEditor sessionId={sessionId} onDone={() => void loadCalibrated()} />
           )}
-          {step === "calibrate" && sessionId && previewUrl && (
+          {step === "calibrate" && sessionId && previewUrl && !isMockSession && (
             <CalibrationCanvas
               sessionId={sessionId}
               imageUrl={previewUrl}
@@ -213,6 +234,9 @@ export default function HomePage() {
             {statusBadge("average_beats")}
             {statusBadge("single_beat")}
           </div>
+          {globalError && (
+            <p className="mb-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">{globalError}</p>
+          )}
           <nav className="mb-6 flex flex-col gap-2">
             {(
               [
@@ -231,10 +255,31 @@ export default function HomePage() {
                 size="sm"
                 className="justify-start"
                 onClick={() => {
+                  if (s === "upload") {
+                    setSessionId(null);
+                    setPreviewUrl(null);
+                    setMaskPreviewUrl(null);
+                    setCalibrated(null);
+                    setAveraged(null);
+                    setHemo(null);
+                    setMethods([]);
+                    setIsMockSession(false);
+                    resetWorkflowInputs();
+                  }
                   setStep(s);
-                  if (s === "calibrate" || s === "average_beats") void loadCalibrated();
-                  if (s === "single_beat" || s === "export") void loadAveraged();
-                  if (s === "export") void loadExistingAnalysis();
+                  if (s === "calibrate" || s === "average_beats") {
+                    void loadCalibrated().catch((e) =>
+                      setGlobalError(e instanceof Error ? e.message : "Load trace failed")
+                    );
+                  }
+                  if (s === "single_beat" || s === "export") {
+                    void loadAveraged().catch((e) =>
+                      setGlobalError(e instanceof Error ? e.message : "Load average failed")
+                    );
+                  }
+                  if (s === "export") {
+                    void loadExistingAnalysis().catch(() => undefined);
+                  }
                 }}
               >
                 Go to {s.replace(/_/g, " ")}

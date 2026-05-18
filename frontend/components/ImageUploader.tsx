@@ -7,7 +7,7 @@ import { uploadImage, createMockSession } from "@/lib/api";
 export function ImageUploader({
   onUploaded,
 }: {
-  onUploaded: (sessionId: string, previewUrl: string) => void;
+  onUploaded: (sessionId: string, previewUrl: string | null, opts?: { isMock?: boolean }) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,9 +30,10 @@ export function ImageUploader({
 
   const mock = async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await createMockSession();
-      onUploaded(res.session_id, `/api/session/${res.session_id}/calibrated_trace.json`);
+      onUploaded(res.session_id, null, { isMock: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Mock failed");
     } finally {
@@ -55,9 +56,9 @@ export function ImageUploader({
         />
       </label>
       <Button variant="outline" onClick={() => void mock()} disabled={loading}>
-        Load synthetic demo session
+        Load synthetic demo session (skip image steps)
       </Button>
-      {loading && <p className="text-sm text-muted-foreground">Uploading…</p>}
+      {loading && <p className="text-sm text-muted-foreground">Working…</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
     </div>
   );

@@ -20,12 +20,22 @@ export function ReplaceLineEditor({
     return [parts[0], parts[1]];
   };
 
+  const [error, setError] = useState<string | null>(null);
+
   const apply = async () => {
     const a = parse(p1);
     const b = parse(p2);
-    if (!a || !b) return;
-    await replaceLine(sessionId, a, b);
-    onDone?.();
+    if (!a || !b) {
+      setError("Enter two points as x,y (pixel coordinates)");
+      return;
+    }
+    setError(null);
+    try {
+      await replaceLine(sessionId, a, b);
+      onDone?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Replace line failed");
+    }
   };
 
   return (
@@ -44,6 +54,7 @@ export function ReplaceLineEditor({
         value={p2}
         onChange={(e) => setP2(e.target.value)}
       />
+      {error && <p className="text-xs text-red-600">{error}</p>}
       <Button size="sm" variant="outline" onClick={() => void apply()}>
         Apply replace line
       </Button>
