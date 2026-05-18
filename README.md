@@ -85,19 +85,26 @@ All methods return the same JSON schema; failures are isolated:
 | Second Derivative Sine | Brimioulle core, 2nd-derivative windows |
 | Kremer/Shih Tangent | Tangent intersection from dP/dt extrema |
 
-## MATLAB port notes / TODO
+## MATLAB port notes
 
-Without the `.mlapp` source in-repo, several items are **approximate** and marked for calibration against MATLAB:
+The backend now mirrors the `SingleBeatAnalysisApp_0517_Methods_Compare` logic for:
 
-- [ ] Exact notch/Fourier filter parameters from App Designer
-- [ ] Original piecewise sinusoid segment boundaries vs `SingleBeatAnalysisApp_0517_Methods_Compare.mlapp`
-- [ ] Event-marker peak detection weights and EDP half-height logic
-- [ ] PV loop construction from measured volumes (current PV plot is illustrative)
-- [ ] Ees/Ea/EDV from catheter data vs SV-only estimates
-- [ ] Cross-correlation beat alignment tuning
-- [ ] PNG/SVG plot export from matplotlib on server
+- **Original Piecewise Sinusoid** — `fitNonlinearFunction` (fsolve) between dP/dt max/min
+- **Brimioulle / RV IsoMax / Second-derivative sine** — `fitBrimioulleSineLMFromWindows` with multi-start LM
+- **Kremer/Shih tangent** — paper formula for Pmax from dP/dt tangents
+- **Beat averaging** — `alignAndNormalizeBeatsForAverage` (foot alignment + xcorr refinement)
+- **Peak selection** — robust (d²P/dt²)² event marker; ESP = 3rd peak; EDP = half-height before 1st peak
+- **Hemodynamics** — `Ees = (Pmax − ESP) / SV`, anchored EDPVR, logistic tau from dP/dt min
 
-Place the MATLAB app at the path referenced in your lab and diff outputs against `exports/` CSVs.
+Still approximate or UI-only vs MATLAB App Designer:
+
+- [ ] 2D notch filter bank on process (optional 1D notch exists; MATLAB uses full FFT2 grid)
+- [ ] `adaptthresh` binary mask (web app uses fixed threshold; default **95** matches MATLAB `CurrentThreshold`)
+- [ ] Interactive peak-selection UI smoothing slider (server accepts client peak indices)
+- [ ] PV loop spline display (`optimizeSpline`) — exports volumes; loop plot not yet in web UI
+- [ ] Golden-file numeric regression against saved MATLAB CSVs per patient
+
+Calibrate against MATLAB by diffing `exports/patient_data.csv` and `pmax_method_summary.csv` for the same trace.
 
 ## Scientific safety
 

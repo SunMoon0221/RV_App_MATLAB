@@ -35,7 +35,7 @@ class SessionState:
     height: int = 0
 
     # Processing params
-    threshold: int = 128
+    threshold: int = 95
     apply_notch_filter: bool = False
 
     calibration: CalibrationParams = field(default_factory=CalibrationParams)
